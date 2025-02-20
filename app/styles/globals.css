@@ -4,33 +4,12 @@
 
 @layer base {
   :root {
-    --background: 222.2 84% 4.9%;
-    --foreground: 210 40% 98%;
-    --card: 222.2 84% 4.9%;
-    --card-foreground: 210 40% 98%;
-    --popover: 222.2 84% 4.9%;
-    --popover-foreground: 210 40% 98%;
-    --primary: 217.2 91.2% 59.8%;
-    --primary-foreground: 222.2 47.4% 11.2%;
-    --secondary: 217.2 32.6% 17.5%;
-    --secondary-foreground: 210 40% 98%;
-    --muted: 217.2 32.6% 17.5%;
-    --muted-foreground: 215 20.2% 65.1%;
-    --accent: 217.2 32.6% 17.5%;
-    --accent-foreground: 210 40% 98%;
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 217.2 32.6% 17.5%;
-    --input: 217.2 32.6% 17.5%;
-    --ring: 224.3 76.3% 48%;
-    --radius: 0.75rem;
+    --background: #000000;
+    --foreground: #ffffff;
   }
 
   body {
-    @apply bg-background text-white;
-    font-feature-settings: "rlig" 1, "calt" 1;
-    min-height: 100vh;
-    min-height: 100dvh;
+    @apply bg-black text-white min-h-screen;
   }
 }
 
@@ -117,14 +96,12 @@
 
   @keyframes glow {
     from {
-      filter: drop-shadow(0 0 10px theme('colors.purple.light/20'))
-             drop-shadow(0 0 20px theme('colors.purple.light/20'))
-             drop-shadow(0 0 30px theme('colors.purple.light/20'));
+      filter: drop-shadow(0 0 10px rgba(179, 136, 255, 0.2))
+             drop-shadow(0 0 20px rgba(179, 136, 255, 0.2));
     }
     to {
-      filter: drop-shadow(0 0 20px theme('colors.purple.light/40'))
-             drop-shadow(0 0 30px theme('colors.purple.light/40'))
-             drop-shadow(0 0 40px theme('colors.purple.light/40'));
+      filter: drop-shadow(0 0 20px rgba(179, 136, 255, 0.4))
+             drop-shadow(0 0 30px rgba(179, 136, 255, 0.4));
     }
   }
 

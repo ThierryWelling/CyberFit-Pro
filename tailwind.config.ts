@@ -5,9 +5,9 @@ import animatePlugin from "tailwindcss-animate";
 const config: Config = {
   darkMode: ["class"],
   content: [
-    './pages/**/*.{js,ts,jsx,tsx,mdx}',
-    './components/**/*.{js,ts,jsx,tsx,mdx}',
     './app/**/*.{js,ts,jsx,tsx,mdx}',
+    './components/**/*.{js,ts,jsx,tsx,mdx}',
+    './lib/**/*.{js,ts,jsx,tsx,mdx}',
   ],
   theme: {
     container: {
@@ -38,8 +38,8 @@ const config: Config = {
         foreground: "hsl(var(--foreground))",
       },
       fontFamily: {
-        sans: ["var(--font-sans)", ...fontFamily.sans],
-        display: ['var(--font-outfit)', 'system-ui', 'sans-serif'],
+        sans: ['Geist Sans', 'system-ui', 'sans-serif'],
+        display: ['Geist Sans', 'system-ui', 'sans-serif'],
       },
       boxShadow: {
         'neon': '0 0 20px rgba(179, 136, 255, 0.15)',

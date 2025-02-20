@@ -1,18 +1,7 @@
 import React from 'react';
 import type { Metadata } from 'next';
-import { Inter as FontSans, Outfit } from 'next/font/google';
+import { GeistSans } from 'geist/font/sans';
 import './styles/globals.css';
-import { cn } from '@/lib/utils';
-
-const fontSans = FontSans({
-  subsets: ['latin'],
-  variable: '--font-sans',
-});
-
-const outfit = Outfit({
-  subsets: ['latin'],
-  variable: '--font-outfit',
-});
 
 export const metadata: Metadata = {
   title: 'CyberFit Pro',
@@ -26,17 +15,8 @@ export default function RootLayout({
 }) {
   return (
     <html lang="pt-BR" suppressHydrationWarning>
-      <head />
-      <body
-        className={cn(
-          'min-h-screen bg-background font-sans antialiased',
-          fontSans.variable,
-          outfit.variable
-        )}
-      >
-        <main className="relative flex min-h-screen flex-col">
-          {children}
-        </main>
+      <body className={`${GeistSans.className} min-h-screen bg-black text-white antialiased`}>
+        {children}
       </body>
     </html>
   );
