@@ -1,17 +1,17 @@
+import React from 'react';
 import type { Metadata } from 'next';
-import { Inter, Outfit } from 'next/font/google';
-import './globals.css';
+import { Inter as FontSans, Outfit } from 'next/font/google';
+import './styles/globals.css';
+import { cn } from '@/lib/utils';
 
-const inter = Inter({ 
+const fontSans = FontSans({
   subsets: ['latin'],
-  variable: '--font-inter',
-  display: 'swap',
+  variable: '--font-sans',
 });
 
 const outfit = Outfit({
   subsets: ['latin'],
   variable: '--font-outfit',
-  display: 'swap',
 });
 
 export const metadata: Metadata = {
@@ -25,9 +25,18 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="pt-BR" className={`${inter.variable} ${outfit.variable}`}>
-      <body className="font-sans antialiased bg-neutral-50 text-neutral-900">
-        {children}
+    <html lang="pt-BR" suppressHydrationWarning>
+      <head />
+      <body
+        className={cn(
+          'min-h-screen bg-background font-sans antialiased',
+          fontSans.variable,
+          outfit.variable
+        )}
+      >
+        <main className="relative flex min-h-screen flex-col">
+          {children}
+        </main>
       </body>
     </html>
   );
