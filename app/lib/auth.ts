@@ -17,7 +17,15 @@ interface RegisterData {
 
 export async function signUp(data: RegisterData) {
   try {
-    console.log('Iniciando cadastro com dados:', data);
+    console.log('=== INÍCIO DO CADASTRO ===');
+    console.log('Dados recebidos:', {
+      email: data.email,
+      fullName: data.fullName,
+      profileType: data.profileType,
+      cnpj: data.cnpj,
+      telefone: data.telefone,
+      address: data.address
+    });
 
     // 1. Criar usuário na autenticação
     const { data: authData, error: authError } = await supabase.auth.signUp({
@@ -32,62 +40,72 @@ export async function signUp(data: RegisterData) {
       }
     });
 
-    if (authError) throw authError;
-
-    console.log('Usuário criado:', authData);
-
-    if (!authData.session) {
-      return { 
-        success: true, 
-        data: authData,
-        message: 'Por favor, verifique seu email para confirmar o cadastro.'
-      };
+    if (authError) {
+      console.error('Erro na autenticação:', authError);
+      throw authError;
     }
 
-    // 2. Fazer login imediatamente após o registro
-    const { error: signInError } = await supabase.auth.signInWithPassword({
-      email: data.email,
-      password: data.password
+    console.log('=== USUÁRIO CRIADO ===');
+    console.log('Dados do usuário:', {
+      id: authData.user?.id,
+      email: authData.user?.email,
+      role: authData.user?.role
     });
 
-    if (signInError) {
-      console.error('Erro ao fazer login após registro:', signInError);
-      throw signInError;
+    if (!authData.user?.id) {
+      console.error('ID do usuário não encontrado');
+      throw new Error('ID do usuário não encontrado');
     }
 
-    console.log('Login realizado após registro');
+    // 2. Preparar dados para inserção
+    const profileSpecificData = getProfileSpecificData(data);
+    console.log('=== DADOS ESPECÍFICOS DO PERFIL ===', profileSpecificData);
 
-    // 3. Inserir dados específicos do perfil na tabela correspondente
     const profileData = {
-      user_id: authData.user?.id,
+      user_id: authData.user.id,
+      full_name: data.fullName,
       email: data.email,
       telefone: data.telefone,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
-      ...getProfileSpecificData(data)
+      ...profileSpecificData
     };
 
-    console.log('Dados do perfil a serem inseridos:', profileData);
-    console.log('Tabela de destino:', getProfileTable(data.profileType));
+    const targetTable = getProfileTable(data.profileType);
+    
+    console.log('=== TENTANDO INSERIR NA TABELA ===');
+    console.log('Tabela:', targetTable);
+    console.log('Dados completos:', profileData);
 
-    const { error: profileError } = await supabase
-      .from(getProfileTable(data.profileType))
-      .insert([profileData]);
+    // 3. Inserir no banco de dados
+    const { data: insertedData, error: profileError } = await supabase
+      .from(targetTable)
+      .insert([profileData])
+      .select()
+      .single();
 
     if (profileError) {
-      console.error('Erro ao inserir perfil:', profileError);
+      console.error('=== ERRO AO INSERIR PERFIL ===');
+      console.error('Detalhes do erro:', {
+        message: profileError.message,
+        details: profileError.details,
+        hint: profileError.hint,
+        code: profileError.code
+      });
       throw profileError;
     }
 
-    console.log('Perfil inserido com sucesso');
+    console.log('=== PERFIL INSERIDO COM SUCESSO ===');
+    console.log('Dados inseridos:', insertedData);
 
     return { 
       success: true, 
       data: authData,
-      message: 'Cadastro realizado com sucesso! Redirecionando...'
+      message: 'Cadastro realizado com sucesso! Por favor, verifique seu email para confirmar sua conta.'
     };
   } catch (error) {
-    console.error('Erro no cadastro:', error);
+    console.error('=== ERRO NO CADASTRO ===');
+    console.error('Erro completo:', error);
     return { success: false, error };
   }
 }
@@ -99,12 +117,49 @@ export async function signIn(email: string, password: string) {
       password
     });
 
-    if (error) throw error;
+    if (error) {
+      console.error('Erro no login:', error);
+      
+      // Verificar tipo específico de erro
+      if (error.message === 'Email not confirmed') {
+        return { 
+          success: false, 
+          error: {
+            message: 'Email not confirmed',
+            details: 'Por favor, confirme seu email antes de fazer login. Verifique sua caixa de entrada.'
+          }
+        };
+      }
+      
+      throw error;
+    }
 
-    return { success: true, data };
+    // Determinar a rota correta baseada no tipo de perfil
+    const profileType = data.user?.user_metadata?.profile_type;
+    let redirectTo = '/';
+
+    switch (profileType) {
+      case 'aluno':
+        redirectTo = '/aluno';
+        break;
+      case 'instrutor':
+        redirectTo = '/instrutor';
+        break;
+      case 'academia':
+        redirectTo = '/academia';
+        break;
+    }
+
+    return { success: true, data, redirectTo };
   } catch (error) {
     console.error('Erro no login:', error);
-    return { success: false, error };
+    return { 
+      success: false, 
+      error: {
+        message: error instanceof Error ? error.message : 'Erro ao fazer login',
+        details: 'Verifique suas credenciais e tente novamente.'
+      }
+    };
   }
 }
 
@@ -179,26 +234,33 @@ function getProfileTable(profileType: 'aluno' | 'instrutor' | 'academia'): strin
 }
 
 function getProfileSpecificData(data: RegisterData) {
+  console.log('=== GERANDO DADOS ESPECÍFICOS ===');
+  console.log('Tipo de perfil:', data.profileType);
+  
+  let specificData;
   switch (data.profileType) {
     case 'aluno':
-      return {
+      specificData = {
         cpf: data.cpf,
         birth_date: data.birthDate,
         instrutor_token: data.token,
-        full_name: data.fullName
       };
+      break;
     case 'instrutor':
-      return {
+      specificData = {
         cpf: data.cpf,
         cref: data.cref,
         academia_token: data.token,
-        full_name: data.fullName
       };
+      break;
     case 'academia':
-      return {
+      specificData = {
         cnpj: data.cnpj,
         address: data.address,
-        full_name: data.academyName
       };
+      break;
   }
+  
+  console.log('Dados específicos gerados:', specificData);
+  return specificData;
 } 

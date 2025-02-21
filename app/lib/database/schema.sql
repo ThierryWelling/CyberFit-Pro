@@ -28,7 +28,8 @@ create table public.instrutores (
     cpf varchar(14) not null unique,
     telefone varchar(20) not null,
     cref varchar(50) not null unique,
-    academia_token varchar(100),
+    academia_email varchar(255) references academias(email),
+    status varchar(20) check (status in ('pendente', 'ativo', 'inativo')) not null default 'pendente',
     created_at timestamp with time zone default timezone('utc'::text, now()) not null,
     updated_at timestamp with time zone default timezone('utc'::text, now()) not null
 );
@@ -44,17 +45,6 @@ create table public.academias (
     address text not null,
     created_at timestamp with time zone default timezone('utc'::text, now()) not null,
     updated_at timestamp with time zone default timezone('utc'::text, now()) not null
-);
-
--- Tabela de Tokens
-create table public.tokens (
-    id uuid default uuid_generate_v4() primary key,
-    token varchar(100) not null unique,
-    type varchar(20) check (type in ('instrutor_token', 'academia_token')) not null,
-    created_by uuid references auth.users(id) not null,
-    created_at timestamp with time zone default timezone('utc'::text, now()) not null,
-    expires_at timestamp with time zone,
-    used boolean default false not null
 );
 
 -- Função para atualizar o updated_at automaticamente
@@ -88,7 +78,6 @@ create trigger handle_academias_updated_at
 alter table public.alunos enable row level security;
 alter table public.instrutores enable row level security;
 alter table public.academias enable row level security;
-alter table public.tokens enable row level security;
 
 -- Políticas para Alunos
 create policy "Alunos podem ver seus próprios dados"
@@ -126,38 +115,24 @@ create policy "Instrutores podem atualizar seus próprios dados"
 
 create policy "Academias podem ver dados dos seus instrutores"
     on public.instrutores for select
-    using (exists (
-        select 1 from public.tokens
-        where tokens.token = instrutores.academia_token
-        and tokens.created_by = auth.uid()
-    ));
+    using (auth.jwt() ->> 'email' = academia_email);
 
 -- Políticas para Academias
-create policy "Academias podem ver seus próprios dados"
-    on public.academias for select
-    using (auth.uid() = user_id);
-
+drop policy if exists "Academias podem ver seus próprios dados" on public.academias;
 drop policy if exists "Academias podem inserir seus próprios dados" on public.academias;
-create policy "Academias podem inserir seus próprios dados"
+drop policy if exists "Academias podem atualizar seus próprios dados" on public.academias;
+
+create policy "Permitir inserção sem restrições"
     on public.academias for insert
     with check (true);
 
-create policy "Academias podem atualizar seus próprios dados"
+create policy "Permitir visualização sem restrições"
+    on public.academias for select
+    using (true);
+
+create policy "Permitir atualização pelo próprio usuário"
     on public.academias for update
     using (auth.uid() = user_id);
-
--- Políticas para Tokens
-create policy "Usuários podem ver seus próprios tokens"
-    on public.tokens for select
-    using (auth.uid() = created_by);
-
-create policy "Usuários podem criar tokens"
-    on public.tokens for insert
-    with check (auth.uid() = created_by);
-
-create policy "Usuários podem atualizar seus próprios tokens"
-    on public.tokens for update
-    using (auth.uid() = created_by);
 
 -- Índices para melhor performance
 create index alunos_user_id_idx on public.alunos(user_id);
@@ -169,11 +144,8 @@ create index instrutores_user_id_idx on public.instrutores(user_id);
 create index instrutores_email_idx on public.instrutores(email);
 create index instrutores_cpf_idx on public.instrutores(cpf);
 create index instrutores_cref_idx on public.instrutores(cref);
-create index instrutores_academia_token_idx on public.instrutores(academia_token);
+create index instrutores_academia_email_idx on public.instrutores(academia_email);
 
 create index academias_user_id_idx on public.academias(user_id);
 create index academias_email_idx on public.academias(email);
-create index academias_cnpj_idx on public.academias(cnpj);
-
-create index tokens_created_by_idx on public.tokens(created_by);
-create index tokens_token_idx on public.tokens(token); 
+create index academias_cnpj_idx on public.academias(cnpj); 

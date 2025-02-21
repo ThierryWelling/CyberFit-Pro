@@ -1,12 +1,13 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { User, ChalkboardTeacher, Buildings, Barbell, Envelope, Lock, CaretLeft, Phone, IdentificationCard, CaretDown, Warning } from '@phosphor-icons/react';
 import { cn } from '../lib/utils';
 import { validarCPF, validarTelefone, validarEmail, validarCNPJ, formatarCPF, formatarCNPJ, formatarTelefoneInternacional, paisesDDI } from '../lib/validators';
 import { signIn, signUp, resetPassword, validateToken } from '../lib/auth';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { supabase } from '../lib/supabase';
 
 type ProfileType = 'aluno' | 'instrutor' | 'academia' | null;
 
@@ -21,12 +22,24 @@ interface FormErrors {
 
 export default function ProfileSelection() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [selectedProfile, setSelectedProfile] = useState<ProfileType>(null);
   const [formType, setFormType] = useState<'login' | 'register'>('login');
   const [formErrors, setFormErrors] = useState<FormErrors>({});
   const [selectedDDI, setSelectedDDI] = useState('55');
   const [showDDISelector, setShowDDISelector] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+
+  useEffect(() => {
+    // Verificar se há um token de redefinição de senha na URL
+    const token = searchParams?.get('token');
+    if (token) {
+      setSelectedProfile('instrutor');
+      setFormType('register');
+      // Armazenar o token para uso posterior
+      localStorage.setItem('resetToken', token);
+    }
+  }, [searchParams]);
 
   const handleProfileSelect = (profile: ProfileType) => {
     setSelectedProfile(profile);
@@ -46,29 +59,79 @@ export default function ProfileSelection() {
       const formData = new FormData(e.target as HTMLFormElement);
       const data = Object.fromEntries(formData);
 
+      // Verificar se é um instrutor completando o cadastro
+      const resetToken = localStorage.getItem('resetToken');
+      if (resetToken && selectedProfile === 'instrutor' && formType === 'register') {
+        if (data.password !== data.confirmPassword) {
+          setFormErrors(prev => ({
+            ...prev,
+            submit: 'As senhas não coincidem'
+          }));
+          return;
+        }
+
+        // Atualizar a senha do usuário
+        const { error: updateError } = await supabase.auth.updateUser({
+          password: data.password as string
+        });
+
+        if (updateError) throw updateError;
+
+        // Atualizar o status do instrutor para 'ativo'
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) throw new Error('Usuário não encontrado');
+
+        const { error: statusError } = await supabase
+          .from('instrutores')
+          .update({ 
+            status: 'ativo',
+            full_name: data.fullName,
+            cpf: data.cpf,
+            telefone: data.telefone,
+            cref: data.cref
+          })
+          .eq('user_id', user.id);
+
+        if (statusError) throw statusError;
+
+        // Limpar o token e redirecionar
+        localStorage.removeItem('resetToken');
+        router.push('/instrutor');
+        return;
+      }
+
+      console.log('=== DADOS DO FORMULÁRIO ===');
+      console.log('Tipo de perfil:', selectedProfile);
+      console.log('Tipo de formulário:', formType);
+      console.log('Dados:', data);
+
       if (formType === 'login') {
         const result = await signIn(data.email as string, data.password as string);
         
         if (result.success) {
-          router.push('/dashboard');
+          router.push(result.redirectTo);
         } else {
           setFormErrors(prev => ({
             ...prev,
-            submit: 'Email ou senha inválidos'
+            submit: result.error?.details || 'Email ou senha inválidos'
           }));
         }
       } else {
-        // Validar token se necessário
-        if (selectedProfile !== 'academia' && data.token) {
-          const tokenValidation = await validateToken(
-            data.token as string,
-            selectedProfile as 'aluno' | 'instrutor'
-          );
-
-          if (!tokenValidation.success) {
+        // Validar dados antes de enviar
+        if (selectedProfile === 'academia') {
+          if (!data.fullName || !data.email || !data.password || !data.cnpj || !data.telefone || !data.address) {
+            console.error('=== DADOS INCOMPLETOS ===');
+            console.error('Campos faltando:', {
+              fullName: !data.fullName,
+              email: !data.email,
+              password: !data.password,
+              cnpj: !data.cnpj,
+              telefone: !data.telefone,
+              address: !data.address
+            });
             setFormErrors(prev => ({
               ...prev,
-              token: 'Token inválido'
+              submit: 'Por favor, preencha todos os campos obrigatórios.'
             }));
             setIsLoading(false);
             return;
@@ -76,6 +139,7 @@ export default function ProfileSelection() {
         }
 
         // Registrar usuário
+        console.log('=== ENVIANDO DADOS PARA CADASTRO ===');
         const result = await signUp({
           email: data.email as string,
           password: data.password as string,
@@ -85,30 +149,33 @@ export default function ProfileSelection() {
           telefone: data.telefone as string,
           birthDate: data.birthDate as string,
           cref: data.cref as string,
-          academyName: data.academyName as string,
           address: data.address as string,
           token: data.token as string,
           profileType: selectedProfile as 'aluno' | 'instrutor' | 'academia'
         });
 
+        console.log('=== RESULTADO DO CADASTRO ===', result);
+
         if (result.success) {
-          if (result.message) {
-            setFormErrors(prev => ({
-              ...prev,
-              submit: result.message
-            }));
-          } else {
-            router.push('/dashboard');
-          }
-        } else {
           setFormErrors(prev => ({
             ...prev,
-            submit: 'Erro ao criar conta. Tente novamente.'
+            submit: result.message
+          }));
+          // Mudar para o formulário de login após 2 segundos
+          setTimeout(() => {
+            setFormType('login');
+            setFormErrors({});
+          }, 2000);
+        } else {
+          console.error('=== ERRO NO CADASTRO ===', result.error);
+          setFormErrors(prev => ({
+            ...prev,
+            submit: result.error?.message || 'Erro ao criar conta. Tente novamente.'
           }));
         }
       }
     } catch (error) {
-      console.error('Erro no formulário:', error);
+      console.error('=== ERRO NO FORMULÁRIO ===', error);
       setFormErrors(prev => ({
         ...prev,
         submit: 'Ocorreu um erro. Tente novamente.'
@@ -414,9 +481,10 @@ export default function ProfileSelection() {
               <Buildings className="absolute left-3 top-1/2 -translate-y-1/2 text-purple-light/70" size={20} />
               <input
                 type="text"
-                name="academyName"
+                name="fullName"
                 placeholder="Nome da Academia"
                 required
+                onChange={handleInputChange}
                 className="w-full bg-background/50 text-white placeholder-purple-light/50 border border-purple-light/10 rounded-xl px-10 py-3 focus:outline-none focus:border-purple-light/30 transition-colors"
               />
             </div>
@@ -447,6 +515,7 @@ export default function ProfileSelection() {
                 name="address"
                 placeholder="Endereço"
                 required
+                onChange={handleInputChange}
                 className="w-full bg-background/50 text-white placeholder-purple-light/50 border border-purple-light/10 rounded-xl px-10 py-3 focus:outline-none focus:border-purple-light/30 transition-colors"
               />
             </div>
