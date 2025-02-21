@@ -12,23 +12,32 @@ import { supabase } from '../lib/supabase';
 type ProfileType = 'aluno' | 'instrutor' | 'academia' | null;
 
 interface FormErrors {
+  email?: string;
+  password?: string;
+  confirmPassword?: string;
+  fullName?: string;
   cpf?: string;
   telefone?: string;
-  email?: string;
   cnpj?: string;
   token?: string;
+  birthDate?: string;
+  cref?: string;
+  address?: string;
   submit?: string;
 }
 
 interface AuthError {
   message: string;
-  details?: string;
+  details?: Record<string, any>;
 }
 
 interface SignInResult {
-  success: boolean;
+  success?: boolean;
+  error?: {
+    message: string;
+    details?: Record<string, any>;
+  };
   redirectTo?: string;
-  error?: AuthError;
 }
 
 interface FormData {
@@ -81,84 +90,29 @@ export default function ProfileSelection() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setFormErrors({});
     setLoading(true);
+    setFormErrors({});
 
     try {
-      if (formType === 'login') {
-        const result: SignInResult = await signIn(formData.email, formData.password);
-        if (result.success) {
-          router.push(result.redirectTo || '/');
-        } else {
-          setFormErrors(prev => ({
-            ...prev,
-            submit: result.error?.message || 'Erro ao fazer login'
-          }));
-        }
-      } else {
-        // Validar dados antes de enviar
-        if (selectedProfile === 'academia') {
-          if (!formData.fullName || !formData.email || !formData.password || !formData.cnpj || !formData.telefone || !formData.address) {
-            console.error('=== DADOS INCOMPLETOS ===');
-            console.error('Campos faltando:', {
-              fullName: !formData.fullName,
-              email: !formData.email,
-              password: !formData.password,
-              cnpj: !formData.cnpj,
-              telefone: !formData.telefone,
-              address: !formData.address
-            });
-            setFormErrors(prev => ({
-              ...prev,
-              submit: 'Por favor, preencha todos os campos obrigatórios.'
-            }));
-            setLoading(false);
-            return;
-          }
-        }
-
-        // Registrar usuário
-        console.log('=== ENVIANDO DADOS PARA CADASTRO ===');
-        const result = await signUp({
-          email: formData.email as string,
-          password: formData.password as string,
-          fullName: formData.fullName as string,
-          cpf: formData.cpf as string,
-          cnpj: formData.cnpj as string,
-          telefone: formData.telefone as string,
-          birthDate: formData.birthDate as string,
-          cref: formData.cref as string,
-          address: formData.address as string,
-          token: formData.token as string,
-          profileType: selectedProfile as 'aluno' | 'instrutor' | 'academia'
-        });
-
-        console.log('=== RESULTADO DO CADASTRO ===', result);
-
-        if (result.success) {
-          setFormErrors(prev => ({
-            ...prev,
-            submit: result.message
-          }));
-          // Mudar para o formulário de login após 2 segundos
-          setTimeout(() => {
-            setFormType('login');
-            setFormErrors({});
-          }, 2000);
-        } else {
-          console.error('=== ERRO NO CADASTRO ===', result.error);
-          setFormErrors(prev => ({
-            ...prev,
-            submit: result.error?.message || 'Erro ao criar conta. Tente novamente.'
-          }));
-        }
+      const result = await signIn(formData.email, formData.password) as SignInResult;
+      
+      const errorMessage = result.error?.message || '';
+      if (errorMessage) {
+        setFormErrors(prev => ({
+          ...prev,
+          submit: errorMessage
+        }));
+        return;
       }
-    } catch (err) {
-      console.error('Erro no formulário:', err);
-      const error = err as Error;
+
+      if (result.redirectTo) {
+        router.push(result.redirectTo);
+      }
+    } catch (error) {
+      const err = error as Error;
       setFormErrors(prev => ({
         ...prev,
-        submit: error.message || 'Erro ao processar formulário'
+        submit: err.message || 'Erro ao fazer login'
       }));
     } finally {
       setLoading(false);

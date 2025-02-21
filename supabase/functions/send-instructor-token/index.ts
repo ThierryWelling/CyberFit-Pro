@@ -1,4 +1,6 @@
-import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
+/// <reference types="https://deno.land/std@0.168.0/http/server.ts" />
+
+import { serve } from "std/http/server.ts";
 
 const RESEND_API_KEY = 're_LpSCGqT1_Bp536n1izBKCNYrZfFMtc4pt';
 
@@ -7,13 +9,19 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+interface RequestBody {
+  email: string;
+  resetLink: string;
+}
+
 serve(async (req: Request) => {
+  // Lidar com requisições OPTIONS para CORS
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
   }
 
   try {
-    const { email, resetLink } = await req.json();
+    const { email, resetLink } = await req.json() as RequestBody;
 
     // Validar dados
     if (!email || !resetLink) {
@@ -69,7 +77,7 @@ serve(async (req: Request) => {
 
     if (!emailResponse.ok) {
       const errorData = await emailResponse.json();
-      throw new Error(`Erro ao enviar email: ${errorData.message}`);
+      throw new Error(`Erro ao enviar email: ${JSON.stringify(errorData)}`);
     }
 
     return new Response(
@@ -85,12 +93,15 @@ serve(async (req: Request) => {
       }
     );
 
-  } catch (error: any) {
+  } catch (error) {
     console.error('Erro na função:', error);
+    
+    const errorMessage = error instanceof Error ? error.message : 'Erro interno do servidor';
+    
     return new Response(
       JSON.stringify({ 
         success: false, 
-        error: error.message || 'Erro interno do servidor' 
+        error: errorMessage 
       }),
       { 
         status: 400,

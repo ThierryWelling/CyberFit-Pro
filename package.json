@@ -4,9 +4,11 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "next build && npm run build:edge",
+    "build:edge": "cd supabase/functions && deno task build send-instructor-token",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "deploy:edge": "supabase functions deploy send-instructor-token"
   },
   "dependencies": {
     "@phosphor-icons/react": "^2.1.7",
@@ -34,6 +36,7 @@
     "typescript": "^5.0.0"
   },
   "devDependencies": {
-    "@types/node": "^22.13.4"
+    "@types/node": "^22.13.4",
+    "supabase": "^1.145.4"
   }
 }

@@ -1,0 +1,15 @@
+{
+  "tasks": {
+    "build": "deno bundle index.ts build/index.js"
+  },
+  "compilerOptions": {
+    "allowJs": true,
+    "lib": ["deno.window"],
+    "strict": true
+  },
+  "importMap": {
+    "imports": {
+      "std/": "https://deno.land/std@0.208.0/"
+    }
+  }
+} 
