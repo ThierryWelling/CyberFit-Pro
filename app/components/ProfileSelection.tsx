@@ -18,7 +18,17 @@ interface FormErrors {
   cnpj?: string;
   token?: string;
   submit?: string;
-  message?: string;
+}
+
+interface AuthError {
+  message: string;
+  details?: string;
+}
+
+interface SignInResult {
+  success: boolean;
+  redirectTo?: string;
+  error?: AuthError;
 }
 
 interface FormData {
@@ -76,7 +86,7 @@ export default function ProfileSelection() {
 
     try {
       if (formType === 'login') {
-        const result = await signIn(formData.email, formData.password);
+        const result: SignInResult = await signIn(formData.email, formData.password);
         if (result.success) {
           router.push(result.redirectTo || '/');
         } else {
@@ -143,11 +153,12 @@ export default function ProfileSelection() {
           }));
         }
       }
-    } catch (err: any) {
+    } catch (err) {
       console.error('Erro no formulário:', err);
+      const error = err as Error;
       setFormErrors(prev => ({
         ...prev,
-        submit: err.message || 'Erro ao processar formulário'
+        submit: error.message || 'Erro ao processar formulário'
       }));
     } finally {
       setLoading(false);
