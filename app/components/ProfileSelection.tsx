@@ -18,6 +18,21 @@ interface FormErrors {
   cnpj?: string;
   token?: string;
   submit?: string;
+  message?: string;
+}
+
+interface FormData {
+  email: string;
+  password: string;
+  confirmPassword?: string;
+  fullName?: string;
+  cpf?: string;
+  telefone?: string;
+  cnpj?: string;
+  token?: string;
+  birthDate?: string;
+  cref?: string;
+  address?: string;
 }
 
 export default function ProfileSelection() {
@@ -25,10 +40,14 @@ export default function ProfileSelection() {
   const searchParams = useSearchParams();
   const [selectedProfile, setSelectedProfile] = useState<ProfileType>(null);
   const [formType, setFormType] = useState<'login' | 'register'>('login');
+  const [formData, setFormData] = useState<FormData>({
+    email: '',
+    password: ''
+  });
   const [formErrors, setFormErrors] = useState<FormErrors>({});
   const [selectedDDI, setSelectedDDI] = useState('55');
   const [showDDISelector, setShowDDISelector] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     // Verificar se há um token de redefinição de senha na URL
@@ -52,88 +71,38 @@ export default function ProfileSelection() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setIsLoading(true);
     setFormErrors({});
+    setLoading(true);
 
     try {
-      const formData = new FormData(e.target as HTMLFormElement);
-      const data = Object.fromEntries(formData);
-
-      // Verificar se é um instrutor completando o cadastro
-      const resetToken = localStorage.getItem('resetToken');
-      if (resetToken && selectedProfile === 'instrutor' && formType === 'register') {
-        if (data.password !== data.confirmPassword) {
-          setFormErrors(prev => ({
-            ...prev,
-            submit: 'As senhas não coincidem'
-          }));
-          return;
-        }
-
-        // Atualizar a senha do usuário
-        const { error: updateError } = await supabase.auth.updateUser({
-          password: data.password as string
-        });
-
-        if (updateError) throw updateError;
-
-        // Atualizar o status do instrutor para 'ativo'
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user) throw new Error('Usuário não encontrado');
-
-        const { error: statusError } = await supabase
-          .from('instrutores')
-          .update({ 
-            status: 'ativo',
-            full_name: data.fullName,
-            cpf: data.cpf,
-            telefone: data.telefone,
-            cref: data.cref
-          })
-          .eq('user_id', user.id);
-
-        if (statusError) throw statusError;
-
-        // Limpar o token e redirecionar
-        localStorage.removeItem('resetToken');
-        router.push('/instrutor');
-        return;
-      }
-
-      console.log('=== DADOS DO FORMULÁRIO ===');
-      console.log('Tipo de perfil:', selectedProfile);
-      console.log('Tipo de formulário:', formType);
-      console.log('Dados:', data);
-
       if (formType === 'login') {
-        const result = await signIn(data.email as string, data.password as string);
-        
+        const result = await signIn(formData.email, formData.password);
         if (result.success) {
-          router.push(result.redirectTo);
+          router.push(result.redirectTo || '/');
         } else {
           setFormErrors(prev => ({
             ...prev,
-            submit: result.error?.details || 'Email ou senha inválidos'
+            submit: result.error?.message || 'Erro ao fazer login'
           }));
         }
       } else {
         // Validar dados antes de enviar
         if (selectedProfile === 'academia') {
-          if (!data.fullName || !data.email || !data.password || !data.cnpj || !data.telefone || !data.address) {
+          if (!formData.fullName || !formData.email || !formData.password || !formData.cnpj || !formData.telefone || !formData.address) {
             console.error('=== DADOS INCOMPLETOS ===');
             console.error('Campos faltando:', {
-              fullName: !data.fullName,
-              email: !data.email,
-              password: !data.password,
-              cnpj: !data.cnpj,
-              telefone: !data.telefone,
-              address: !data.address
+              fullName: !formData.fullName,
+              email: !formData.email,
+              password: !formData.password,
+              cnpj: !formData.cnpj,
+              telefone: !formData.telefone,
+              address: !formData.address
             });
             setFormErrors(prev => ({
               ...prev,
               submit: 'Por favor, preencha todos os campos obrigatórios.'
             }));
-            setIsLoading(false);
+            setLoading(false);
             return;
           }
         }
@@ -141,16 +110,16 @@ export default function ProfileSelection() {
         // Registrar usuário
         console.log('=== ENVIANDO DADOS PARA CADASTRO ===');
         const result = await signUp({
-          email: data.email as string,
-          password: data.password as string,
-          fullName: data.fullName as string,
-          cpf: data.cpf as string,
-          cnpj: data.cnpj as string,
-          telefone: data.telefone as string,
-          birthDate: data.birthDate as string,
-          cref: data.cref as string,
-          address: data.address as string,
-          token: data.token as string,
+          email: formData.email as string,
+          password: formData.password as string,
+          fullName: formData.fullName as string,
+          cpf: formData.cpf as string,
+          cnpj: formData.cnpj as string,
+          telefone: formData.telefone as string,
+          birthDate: formData.birthDate as string,
+          cref: formData.cref as string,
+          address: formData.address as string,
+          token: formData.token as string,
           profileType: selectedProfile as 'aluno' | 'instrutor' | 'academia'
         });
 
@@ -174,14 +143,14 @@ export default function ProfileSelection() {
           }));
         }
       }
-    } catch (error) {
-      console.error('=== ERRO NO FORMULÁRIO ===', error);
+    } catch (err: any) {
+      console.error('Erro no formulário:', err);
       setFormErrors(prev => ({
         ...prev,
-        submit: 'Ocorreu um erro. Tente novamente.'
+        submit: err.message || 'Erro ao processar formulário'
       }));
     } finally {
-      setIsLoading(false);
+      setLoading(false);
     }
   };
 
@@ -196,7 +165,7 @@ export default function ProfileSelection() {
       return;
     }
 
-    setIsLoading(true);
+    setLoading(true);
     
     try {
       const result = await resetPassword(email);
@@ -216,7 +185,7 @@ export default function ProfileSelection() {
         submit: 'Ocorreu um erro. Tente novamente.'
       }));
     } finally {
-      setIsLoading(false);
+      setLoading(false);
     }
   };
 
@@ -256,6 +225,11 @@ export default function ProfileSelection() {
         }
         break;
     }
+
+    setFormData(prev => ({
+      ...prev,
+      [name]: formattedValue
+    }));
 
     setFormErrors(prev => ({
       ...prev,
@@ -631,16 +605,16 @@ export default function ProfileSelection() {
             
             <motion.button 
               type="submit"
-              disabled={isLoading}
-              whileHover={{ scale: isLoading ? 1 : 1.02 }}
-              whileTap={{ scale: isLoading ? 1 : 0.98 }}
+              disabled={loading}
+              whileHover={{ scale: loading ? 1 : 1.02 }}
+              whileTap={{ scale: loading ? 1 : 0.98 }}
               className={cn(
                 "w-full bg-accent-blue text-white py-4 px-6 rounded-xl font-semibold transition-all duration-300 shadow-lg shadow-accent-blue/20 relative overflow-hidden group",
-                isLoading && "opacity-70 cursor-not-allowed"
+                loading && "opacity-70 cursor-not-allowed"
               )}
             >
               <span className="relative z-10">
-                {isLoading ? 'Carregando...' : formType === 'register' ? 'Cadastrar' : 'Entrar'}
+                {loading ? 'Carregando...' : formType === 'register' ? 'Cadastrar' : 'Entrar'}
               </span>
               <div className="absolute inset-0 bg-gradient-to-r from-accent-blue to-purple opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
             </motion.button>
@@ -649,11 +623,11 @@ export default function ProfileSelection() {
               <motion.button 
                 type="button"
                 onClick={handleForgotPassword}
-                disabled={isLoading}
-                whileHover={{ scale: isLoading ? 1 : 1.02, x: isLoading ? 0 : 5 }}
+                disabled={loading}
+                whileHover={{ scale: loading ? 1 : 1.02, x: loading ? 0 : 5 }}
                 className={cn(
                   "w-full text-sm text-purple-light/70 hover:text-purple-light transition-colors mt-2",
-                  isLoading && "opacity-70 cursor-not-allowed"
+                  loading && "opacity-70 cursor-not-allowed"
                 )}
               >
                 Esqueceu sua senha?
@@ -890,16 +864,16 @@ export default function ProfileSelection() {
                       
                       <motion.button 
                         type="submit"
-                        disabled={isLoading}
-                        whileHover={{ scale: isLoading ? 1 : 1.02 }}
-                        whileTap={{ scale: isLoading ? 1 : 0.98 }}
+                        disabled={loading}
+                        whileHover={{ scale: loading ? 1 : 1.02 }}
+                        whileTap={{ scale: loading ? 1 : 0.98 }}
                         className={cn(
                           "w-full bg-accent-blue text-white py-4 px-6 rounded-xl font-semibold transition-all duration-300 shadow-lg shadow-accent-blue/20 relative overflow-hidden group",
-                          isLoading && "opacity-70 cursor-not-allowed"
+                          loading && "opacity-70 cursor-not-allowed"
                         )}
                       >
                         <span className="relative z-10">
-                          {isLoading ? 'Carregando...' : formType === 'register' ? 'Cadastrar' : 'Entrar'}
+                          {loading ? 'Carregando...' : formType === 'register' ? 'Cadastrar' : 'Entrar'}
                         </span>
                         <div className="absolute inset-0 bg-gradient-to-r from-accent-blue to-purple opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
                       </motion.button>
@@ -908,11 +882,11 @@ export default function ProfileSelection() {
                         <motion.button 
                           type="button"
                           onClick={handleForgotPassword}
-                          disabled={isLoading}
-                          whileHover={{ scale: isLoading ? 1 : 1.02, x: isLoading ? 0 : 5 }}
+                          disabled={loading}
+                          whileHover={{ scale: loading ? 1 : 1.02, x: loading ? 0 : 5 }}
                           className={cn(
                             "w-full text-sm text-purple-light/70 hover:text-purple-light transition-colors mt-2",
-                            isLoading && "opacity-70 cursor-not-allowed"
+                            loading && "opacity-70 cursor-not-allowed"
                           )}
                         >
                           Esqueceu sua senha?
