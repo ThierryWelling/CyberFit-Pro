@@ -1,72 +1,115 @@
 import { useState, useEffect } from 'react';
-import { supabase } from '../lib/supabase';
+import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
+import { useRouter } from 'next/navigation';
+
+interface UserStats {
+  academia?: {
+    nome: string;
+  };
+}
 
 interface UserProfile {
-  id: string;
-  full_name: string;
-  email: string;
   profile_type: 'aluno' | 'instrutor' | 'academia';
+  full_name: string;
+  stats?: UserStats;
 }
 
 export function useUserProfile() {
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const router = useRouter();
+  const supabase = createClientComponentClient();
 
   useEffect(() => {
-    const fetchProfile = async () => {
+    let isMounted = true;
+
+    async function fetchProfile() {
       try {
-        const { data: { session } } = await supabase.auth.getSession();
+        // Verificar sessão
+        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+        
+        if (sessionError) {
+          throw sessionError;
+        }
+
         if (!session) {
-          setLoading(false);
+          router.push('/');
           return;
         }
 
-        const userId = session.user.id;
-        const userType = session.user.user_metadata.profile_type;
-        let tableName = '';
+        // Buscar dados do usuário
+        const { data: userData, error: userError } = await supabase.auth.getUser();
+        if (userError) throw userError;
 
-        // Determinar a tabela correta baseada no tipo de perfil
-        switch (userType) {
-          case 'aluno':
-            tableName = 'alunos';
-            break;
-          case 'instrutor':
-            tableName = 'instrutores';
-            break;
-          case 'academia':
-            tableName = 'academias';
-            break;
-          default:
-            throw new Error('Tipo de perfil inválido');
+        const profileType = userData.user.user_metadata.profile_type;
+        let fullName = userData.user.user_metadata.full_name;
+        let stats: UserStats | undefined;
+
+        // Se for instrutor, buscar dados da academia
+        if (profileType === 'instrutor') {
+          const { data: instrutorData, error: instrutorError } = await supabase
+            .from('instrutores')
+            .select('full_name, academia_email')
+            .eq('user_id', userData.user.id)
+            .single();
+
+          if (instrutorError) {
+            console.error('Erro ao buscar instrutor:', instrutorError);
+            throw instrutorError;
+          }
+
+          // Usar o nome do instrutor da tabela instrutores
+          if (instrutorData) {
+            fullName = instrutorData.full_name;
+
+            if (instrutorData.academia_email) {
+              const { data: academiaData, error: academiaError } = await supabase
+                .from('academias')
+                .select('full_name')
+                .eq('email', instrutorData.academia_email)
+                .single();
+
+              if (!academiaError && academiaData) {
+                stats = {
+                  academia: {
+                    nome: academiaData.full_name
+                  }
+                };
+              }
+            }
+          }
         }
 
-        // Buscar dados do perfil
-        const { data: profileData, error: profileError } = await supabase
-          .from(tableName)
-          .select('*')
-          .eq('user_id', userId)
-          .single();
-
-        if (profileError) throw profileError;
-
-        setProfile({
-          id: profileData.id,
-          full_name: profileData.full_name,
-          email: session.user.email!,
-          profile_type: userType
-        });
-
-      } catch (err) {
+        if (isMounted) {
+          setProfile({
+            profile_type: profileType,
+            full_name: fullName,
+            stats
+          });
+        }
+      } catch (err: any) {
         console.error('Erro ao buscar perfil:', err);
-        setError('Erro ao carregar perfil');
+        if (isMounted) {
+          if (err.message === 'Auth session missing!') {
+            router.push('/');
+          } else {
+            setError('Erro ao carregar perfil');
+          }
+        }
       } finally {
-        setLoading(false);
+        if (isMounted) {
+          setLoading(false);
+        }
       }
-    };
+    }
 
     fetchProfile();
-  }, []);
+
+    return () => {
+      isMounted = false;
+    };
+  }, [router]);
 
   return { profile, loading, error };
 } 

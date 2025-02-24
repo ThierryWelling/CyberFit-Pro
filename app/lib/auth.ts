@@ -34,7 +34,8 @@ export async function signUp(data: RegisterData) {
       options: {
         data: {
           full_name: data.fullName,
-          profile_type: data.profileType
+          profile_type: data.profileType,
+          email_verified: false
         },
         emailRedirectTo: `${window.location.origin}/auth/callback`
       }
@@ -61,6 +62,68 @@ export async function signUp(data: RegisterData) {
     const profileSpecificData = getProfileSpecificData(data);
     console.log('=== DADOS ESPECÍFICOS DO PERFIL ===', profileSpecificData);
 
+    // Se for academia, tentar inserir usando a função segura
+    if (data.profileType === 'academia') {
+      console.log('=== TENTANDO INSERIR ACADEMIA ===');
+      console.log('Dados:', {
+        user_id: authData.user.id,
+        full_name: data.fullName,
+        email: data.email,
+        cnpj: data.cnpj,
+        telefone: data.telefone,
+        address: data.address
+      });
+
+      const { data: insertedData, error: profileError } = await supabase
+        .rpc('insert_academia', {
+          _user_id: authData.user.id,
+          _full_name: data.fullName,
+          _email: data.email,
+          _cnpj: data.cnpj,
+          _telefone: data.telefone,
+          _address: data.address
+        });
+
+      if (profileError) {
+        console.error('=== ERRO AO INSERIR ACADEMIA ===');
+        console.error('Detalhes do erro:', {
+          message: profileError.message,
+          details: profileError.details,
+          hint: profileError.hint,
+          code: profileError.code
+        });
+
+        // Fazer logout se houver erro na inserção
+        await supabase.auth.signOut();
+
+        // Retornar erro mais detalhado
+        throw new Error(`Erro ao inserir academia: ${profileError.message || 'Erro desconhecido'}`);
+      }
+
+      console.log('=== ACADEMIA INSERIDA COM SUCESSO ===');
+      console.log('ID da academia:', insertedData);
+
+      // Buscar os dados completos da academia inserida
+      const { data: academiaData, error: fetchError } = await supabase
+        .from('academias')
+        .select('*')
+        .eq('id', insertedData)
+        .single();
+
+      if (fetchError) {
+        console.error('Erro ao buscar dados da academia:', fetchError);
+      } else {
+        console.log('Dados completos da academia:', academiaData);
+      }
+
+      return { 
+        success: true, 
+        data: authData,
+        message: 'Cadastro realizado com sucesso! Por favor, verifique seu email para confirmar sua conta.'
+      };
+    }
+
+    // Para outros tipos de perfil, continuar com o fluxo normal
     const profileData = {
       user_id: authData.user.id,
       full_name: data.fullName,
@@ -92,11 +155,28 @@ export async function signUp(data: RegisterData) {
         hint: profileError.hint,
         code: profileError.code
       });
-      throw profileError;
+
+      // Fazer logout se houver erro na inserção
+      await supabase.auth.signOut();
+
+      // Retornar erro mais detalhado
+      throw new Error(`Erro ao inserir perfil: ${profileError.message || 'Erro desconhecido'}`);
     }
 
     console.log('=== PERFIL INSERIDO COM SUCESSO ===');
     console.log('Dados inseridos:', insertedData);
+
+    // 4. Enviar email de confirmação
+    const { error: emailError } = await supabase.auth.resetPasswordForEmail(
+      data.email,
+      {
+        redirectTo: `${window.location.origin}/reset-password`
+      }
+    );
+
+    if (emailError) {
+      console.error('Erro ao enviar email:', emailError);
+    }
 
     return { 
       success: true, 
@@ -106,12 +186,22 @@ export async function signUp(data: RegisterData) {
   } catch (error) {
     console.error('=== ERRO NO CADASTRO ===');
     console.error('Erro completo:', error);
-    return { success: false, error };
+
+    // Melhorar o retorno de erro
+    return { 
+      success: false, 
+      error: {
+        message: error instanceof Error ? error.message : 'Erro ao realizar cadastro',
+        details: error instanceof Error ? error.stack : 'Detalhes não disponíveis'
+      }
+    };
   }
 }
 
 export async function signIn(email: string, password: string) {
   try {
+    console.log('Iniciando login com:', email);
+
     const { data, error } = await supabase.auth.signInWithPassword({
       email,
       password
@@ -119,45 +209,79 @@ export async function signIn(email: string, password: string) {
 
     if (error) {
       console.error('Erro no login:', error);
+      let errorMessage = 'Erro ao fazer login. Tente novamente.';
       
-      // Verificar tipo específico de erro
-      if (error.message === 'Email not confirmed') {
-        return { 
-          success: false, 
-          error: {
-            message: 'Email not confirmed',
-            details: 'Por favor, confirme seu email antes de fazer login. Verifique sua caixa de entrada.'
-          }
-        };
+      switch (error.message) {
+        case 'Invalid login credentials':
+          errorMessage = 'Email ou senha incorretos';
+          break;
+        case 'Email not confirmed':
+          errorMessage = 'Por favor, confirme seu email antes de fazer login';
+          break;
+        case 'Invalid email or password':
+          errorMessage = 'Email ou senha inválidos';
+          break;
       }
       
-      throw error;
+      return { 
+        success: false, 
+        error: {
+          message: errorMessage,
+          details: error
+        }
+      };
     }
 
-    // Determinar a rota correta baseada no tipo de perfil
-    const profileType = data.user?.user_metadata?.profile_type;
-    let redirectTo = '/';
+    if (!data.user) {
+      console.error('Usuário não encontrado após login');
+      return {
+        success: false,
+        error: {
+          message: 'Usuário não encontrado',
+          details: null
+        }
+      };
+    }
 
+    const profileType = data.user.user_metadata?.profile_type;
+    console.log('Tipo de perfil:', profileType);
+
+    let redirectPath = '';
     switch (profileType) {
       case 'aluno':
-        redirectTo = '/aluno';
+        redirectPath = '/aluno/dashboard';
         break;
       case 'instrutor':
-        redirectTo = '/instrutor';
+        redirectPath = '/instrutor/dashboard';
         break;
       case 'academia':
-        redirectTo = '/academia';
+        redirectPath = '/academia/dashboard';
         break;
+      default:
+        console.error('Tipo de perfil não reconhecido:', profileType);
+        return {
+          success: false,
+          error: {
+            message: 'Tipo de perfil não reconhecido',
+            details: { profileType }
+          }
+        };
     }
 
-    return { success: true, data, redirectTo };
+    console.log('Redirecionando para:', redirectPath);
+
+    return { 
+      success: true, 
+      data,
+      redirectTo: redirectPath
+    };
   } catch (error) {
-    console.error('Erro no login:', error);
+    console.error('Erro inesperado no login:', error);
     return { 
       success: false, 
       error: {
-        message: error instanceof Error ? error.message : 'Erro ao fazer login',
-        details: 'Verifique suas credenciais e tente novamente.'
+        message: 'Erro inesperado ao fazer login. Tente novamente.',
+        details: error instanceof Error ? error.message : 'Erro desconhecido'
       }
     };
   }

@@ -14,15 +14,29 @@ import {
   ChalkboardTeacher,
   UserCircle,
   Bell,
-  Spinner
+  Spinner,
+  Buildings
 } from '@phosphor-icons/react';
 import { cn } from '../lib/utils';
 import { signOut } from '../lib/auth';
 import { useUserProfile } from '../hooks/useUserProfile';
 
+interface UserStats {
+  academia?: {
+    nome: string;
+    logo_url?: string;
+  };
+}
+
+interface UserProfile {
+  profile_type: 'aluno' | 'instrutor' | 'academia';
+  full_name: string;
+  stats?: UserStats;
+}
+
 interface MenuItem {
   name: string;
-  icon: React.ElementType;
+  icon: any;
   path: string;
 }
 
@@ -94,8 +108,20 @@ export default function Sidebar() {
     >
       {/* Logo */}
       <div className="flex items-center gap-3 px-6 py-8">
-        <Barbell size={32} weight="duotone" className="text-purple-light" />
-        <h1 className="text-xl font-semibold text-white">CyberFit Pro</h1>
+        {profile?.profile_type === 'instrutor' && profile?.stats?.academia ? (
+          <div className="flex items-center gap-3">
+            <Buildings size={32} weight="duotone" className="text-purple-light" />
+            <div>
+              <h1 className="text-xl font-semibold text-white">{profile.stats.academia.nome}</h1>
+              <p className="text-sm text-purple-light/70">Academia</p>
+            </div>
+          </div>
+        ) : (
+          <>
+            <Barbell size={32} weight="duotone" className="text-purple-light" />
+            <h1 className="text-xl font-semibold text-white">CyberFit Pro</h1>
+          </>
+        )}
       </div>
 
       {/* User Profile */}
@@ -105,8 +131,14 @@ export default function Sidebar() {
             <UserCircle size={24} className="text-purple-light" weight="fill" />
           </div>
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium text-white truncate">{profile.full_name}</p>
-            <p className="text-xs text-purple-light/70 capitalize">{profile.profile_type}</p>
+            <p className="text-sm font-medium text-white truncate">
+              {profile?.full_name ? profile.full_name.split(' ').map(word => 
+                word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
+              ).join(' ') : 'Usuário'}
+            </p>
+            <p className="text-xs text-purple-light/70 capitalize">
+              {profile?.profile_type === 'instrutor' ? 'Instrutor' : profile?.profile_type || 'Carregando...'}
+            </p>
           </div>
           <button className="relative group">
             <Bell size={20} className="text-purple-light/70 group-hover:text-purple-light transition-colors" />

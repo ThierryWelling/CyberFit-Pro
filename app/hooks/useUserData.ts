@@ -1,131 +1,115 @@
 import { useState, useEffect } from 'react';
-import { supabase } from '../lib/supabase';
+import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
+import { useRouter } from 'next/navigation';
 
-interface UserStats {
-  totalAlunos?: number;
-  treinosAtivos?: number;
-  avaliacoesPendentes?: number;
-  instrutores?: number;
-  receitaMensal?: number;
-  taxaRetencao?: number;
+interface Stats {
+  totalAlunos: number;
+  treinosAtivos: number;
+  avaliacoesPendentes: number;
+  academia?: string;
 }
 
-interface Atividade {
-  id: string;
-  tipo: string;
-  descricao: string;
-  data: string;
-  status: string;
-}
-
-interface Aluno {
-  id: string;
-  full_name: string;
-  ultimo_treino: string;
-}
-
-export interface Instrutor {
-  id: string;
-  full_name: string;
-  email: string;
-  cref: string;
-  alunos_ativos: number;
-  status: 'ativo' | 'inativo';
-}
-
-export function useUserData(userType: 'aluno' | 'instrutor' | 'academia') {
-  const [stats, setStats] = useState<UserStats>({});
-  const [atividades, setAtividades] = useState<Atividade[]>([]);
-  const [alunos, setAlunos] = useState<Aluno[]>([]);
-  const [instrutores, setInstrutores] = useState<Instrutor[]>([]);
+export function useUserData(profileType: 'instrutor' | 'aluno') {
+  const [stats, setStats] = useState<Stats>({
+    totalAlunos: 0,
+    treinosAtivos: 0,
+    avaliacoesPendentes: 0
+  });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const router = useRouter();
+
+  const supabase = createClientComponentClient();
 
   useEffect(() => {
-    const fetchData = async () => {
+    let isMounted = true;
+
+    async function fetchData() {
       try {
-        const { data: { session } } = await supabase.auth.getSession();
-        if (!session) return;
-
-        const userId = session.user.id;
-
-        switch (userType) {
-          case 'aluno':
-            // Buscar estatísticas do aluno
-            const { data: alunoStats } = await supabase
-              .from('treinos')
-              .select('*')
-              .eq('aluno_id', userId);
-
-            const { data: alunoAtividades } = await supabase
-              .from('atividades')
-              .select('*')
-              .eq('aluno_id', userId)
-              .order('data', { ascending: false })
-              .limit(5);
-
-            setStats({
-              treinosAtivos: alunoStats?.filter(t => t.status === 'ativo').length || 0,
-            });
-            setAtividades(alunoAtividades || []);
-            break;
-
-          case 'instrutor':
-            // Buscar estatísticas do instrutor
-            const { data: instrutorStats } = await supabase
-              .from('instrutores')
-              .select('*, alunos(*)')
-              .eq('user_id', userId)
-              .single();
-
-            const { data: instrutorAlunos } = await supabase
-              .from('alunos')
-              .select('*')
-              .eq('instrutor_id', instrutorStats?.id)
-              .order('created_at', { ascending: false });
-
-            setStats({
-              totalAlunos: instrutorStats?.alunos?.length || 0,
-              treinosAtivos: instrutorStats?.treinos_ativos || 0,
-              avaliacoesPendentes: instrutorStats?.avaliacoes_pendentes || 0,
-            });
-            setAlunos(instrutorAlunos || []);
-            break;
-
-          case 'academia':
-            // Buscar estatísticas da academia
-            const { data: academiaStats } = await supabase
-              .from('academias')
-              .select('*, instrutores(*), alunos(*)')
-              .eq('user_id', userId)
-              .single();
-
-            const { data: academiaInstrutores } = await supabase
-              .from('instrutores')
-              .select('*')
-              .eq('academia_id', academiaStats?.id)
-              .order('created_at', { ascending: false });
-
-            setStats({
-              totalAlunos: academiaStats?.alunos?.length || 0,
-              instrutores: academiaStats?.instrutores?.length || 0,
-              receitaMensal: academiaStats?.receita_mensal || 0,
-              taxaRetencao: academiaStats?.taxa_retencao || 0,
-            });
-            setInstrutores(academiaInstrutores || []);
-            break;
+        // Verificar sessão
+        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+        
+        if (sessionError) {
+          throw sessionError;
         }
 
-        setLoading(false);
-      } catch (err) {
+        if (!session) {
+          router.push('/');
+          return;
+        }
+
+        // Buscar dados do instrutor
+        const { data: instrutorData, error: instrutorError } = await supabase
+          .from('instrutores')
+          .select(`
+            id,
+            academia_email,
+            alunos (
+              id
+            ),
+            treinos (
+              id,
+              status
+            ),
+            avaliacoes (
+              id,
+              status
+            )
+          `)
+          .eq('user_id', session.user.id)
+          .single();
+
+        if (instrutorError) throw instrutorError;
+
+        // Buscar nome da academia
+        let academiaNome = 'Não vinculado';
+        if (instrutorData?.academia_email) {
+          const { data: academiaData, error: academiaError } = await supabase
+            .from('academias')
+            .select('full_name')
+            .eq('email', instrutorData.academia_email)
+            .single();
+
+          if (!academiaError && academiaData) {
+            academiaNome = academiaData.full_name;
+          }
+        }
+
+        // Calcular estatísticas
+        const totalAlunos = instrutorData.alunos?.length || 0;
+        const treinosAtivos = instrutorData.treinos?.filter(t => t.status === 'ativo').length || 0;
+        const avaliacoesPendentes = instrutorData.avaliacoes?.filter(a => a.status === 'pendente').length || 0;
+
+        if (isMounted) {
+          setStats({
+            totalAlunos,
+            treinosAtivos,
+            avaliacoesPendentes,
+            academia: academiaNome
+          });
+        }
+      } catch (err: any) {
         console.error('Erro ao buscar dados:', err);
-        setError('Erro ao carregar dados');
-        setLoading(false);
+        if (isMounted) {
+          if (err.message === 'Auth session missing!') {
+            router.push('/');
+          } else {
+            setError(err.message);
+          }
+        }
+      } finally {
+        if (isMounted) {
+          setLoading(false);
+        }
       }
-    };
+    }
 
     fetchData();
-  }, [userType]);
 
-  return { stats, atividades, alunos, instrutores, loading, error };
+    return () => {
+      isMounted = false;
+    };
+  }, [router]);
+
+  return { stats, loading, error };
 } 

@@ -43,15 +43,24 @@ interface SignInResult {
 interface FormData {
   email: string;
   password: string;
-  confirmPassword?: string;
   fullName?: string;
   cpf?: string;
-  telefone?: string;
   cnpj?: string;
-  token?: string;
+  telefone?: string;
   birthDate?: string;
   cref?: string;
   address?: string;
+  token?: string;
+}
+
+interface RegisterError {
+  message?: string;
+  details?: Record<string, any>;
+}
+
+interface RegisterResult {
+  success: boolean;
+  error?: RegisterError;
 }
 
 export default function ProfileSelection() {
@@ -59,6 +68,7 @@ export default function ProfileSelection() {
   const searchParams = useSearchParams();
   const [selectedProfile, setSelectedProfile] = useState<ProfileType>(null);
   const [formType, setFormType] = useState<'login' | 'register'>('login');
+  const [showResetForm, setShowResetForm] = useState(false);
   const [formData, setFormData] = useState<FormData>({
     email: '',
     password: ''
@@ -88,55 +98,138 @@ export default function ProfileSelection() {
     setFormType(type);
   };
 
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const { name, value } = e.target;
+    
+    // Atualizar formData imediatamente
+    setFormData(prev => ({
+      ...prev,
+      [name]: value
+    }));
+
+    // Limpar mensagens de erro
+    setFormErrors(prev => ({
+      ...prev,
+      [name]: '',
+      submit: ''
+    }));
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setFormErrors({});
 
+    const email = formData.email?.trim() || '';
+    const password = formData.password || '';
+
+    if (!email || !password) {
+      setFormErrors(prev => ({
+        ...prev,
+        submit: 'Email e senha são obrigatórios'
+      }));
+      setLoading(false);
+      return;
+    }
+
     try {
-      const result = await signIn(formData.email, formData.password) as SignInResult;
-      
-      const errorMessage = result.error?.message || '';
-      if (errorMessage) {
+      if (formType === 'register') {
+        // Validar campos obrigatórios para registro
+        if (!formData.fullName || !formData.telefone) {
+          setFormErrors(prev => ({
+            ...prev,
+            submit: 'Todos os campos são obrigatórios'
+          }));
+          setLoading(false);
+          return;
+        }
+
+        // Registrar novo usuário
+        const registerData = {
+          email,
+          password,
+          fullName: formData.fullName,
+          cpf: formData.cpf,
+          cnpj: formData.cnpj,
+          telefone: formData.telefone,
+          birthDate: formData.birthDate,
+          cref: formData.cref,
+          address: formData.address,
+          token: formData.token,
+          profileType: selectedProfile as 'aluno' | 'instrutor' | 'academia'
+        };
+
+        const result = await signUp(registerData) as RegisterResult;
+        
+        if (!result.success) {
+          setFormErrors(prev => ({
+            ...prev,
+            submit: result.error?.message || 'Erro ao criar conta'
+          }));
+          return;
+        }
+
         setFormErrors(prev => ({
           ...prev,
-          submit: errorMessage
+          submit: 'Conta criada com sucesso! Por favor, verifique seu email para confirmar sua conta.'
         }));
         return;
-      }
+      } else {
+        // Login
+        console.log('Tentando fazer login com:', email);
+        const result = await signIn(email, password);
+        
+        if (result.error) {
+          console.error('Erro retornado pelo signIn:', result.error);
+          setFormErrors(prev => ({
+            ...prev,
+            submit: result.error.message
+          }));
+          setLoading(false);
+          return;
+        }
 
-      if (result.redirectTo) {
-        router.push(result.redirectTo);
+        if (result.success && result.redirectTo) {
+          console.log('Login bem-sucedido, redirecionando para:', result.redirectTo);
+          // Usar window.location.href para forçar um redirecionamento completo
+          window.location.href = result.redirectTo;
+        } else {
+          console.error('Login bem-sucedido mas sem URL de redirecionamento');
+          setFormErrors(prev => ({
+            ...prev,
+            submit: 'Erro ao redirecionar após login'
+          }));
+          setLoading(false);
+        }
       }
     } catch (error) {
       const err = error as Error;
+      console.error('Erro no handleSubmit:', err);
       setFormErrors(prev => ({
         ...prev,
-        submit: err.message || 'Erro ao fazer login'
+        submit: err.message || 'Erro ao processar solicitação'
       }));
-    } finally {
       setLoading(false);
     }
   };
 
   const handleForgotPassword = async () => {
-    const email = (document.querySelector('input[name="email"]') as HTMLInputElement)?.value;
-    
-    if (!email) {
-      setFormErrors(prev => ({
-        ...prev,
-        email: 'Digite seu email para recuperar a senha'
-      }));
-      return;
-    }
+    setShowResetForm(true);
+  };
 
+  const handleResetPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
     setLoading(true);
     
     try {
-      const result = await resetPassword(email);
+      const result = await resetPassword(formData.email);
       
       if (result.success) {
-        alert('Enviamos um email com instruções para redefinir sua senha');
+        setFormErrors(prev => ({
+          ...prev,
+          submit: 'Email de recuperação enviado com sucesso! Verifique sua caixa de entrada.'
+        }));
+        setShowResetForm(false);
       } else {
         setFormErrors(prev => ({
           ...prev,
@@ -152,54 +245,6 @@ export default function ProfileSelection() {
     } finally {
       setLoading(false);
     }
-  };
-
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const { name, value } = e.target;
-    let formattedValue = value;
-    let error = '';
-
-    switch (name) {
-      case 'cpf':
-        formattedValue = formatarCPF(value);
-        if (value && !validarCPF(value)) {
-          error = 'CPF inválido';
-        }
-        e.target.value = formattedValue;
-        break;
-      
-      case 'cnpj':
-        formattedValue = formatarCNPJ(value);
-        if (value && !validarCNPJ(value)) {
-          error = 'CNPJ inválido';
-        }
-        e.target.value = formattedValue;
-        break;
-      
-      case 'telefone':
-        formattedValue = formatarTelefoneInternacional(value, selectedDDI);
-        if (value && !validarTelefone(value, selectedDDI)) {
-          error = 'Telefone inválido';
-        }
-        e.target.value = formattedValue;
-        break;
-
-      case 'email':
-        if (value && !validarEmail(value)) {
-          error = 'Email inválido';
-        }
-        break;
-    }
-
-    setFormData(prev => ({
-      ...prev,
-      [name]: formattedValue
-    }));
-
-    setFormErrors(prev => ({
-      ...prev,
-      [name]: error
-    }));
   };
 
   const renderPhoneInput = () => (
@@ -465,7 +510,84 @@ export default function ProfileSelection() {
     }
   };
 
+  const renderResetPasswordForm = () => {
+    return (
+      <motion.div
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="space-y-4"
+      >
+        <div className="flex justify-between items-center mb-6">
+          <h3 className="text-xl font-medium text-white">Recuperar Senha</h3>
+          <button
+            type="button"
+            onClick={() => setShowResetForm(false)}
+            className="text-purple-light hover:text-purple transition-colors"
+          >
+            <CaretLeft size={24} weight="bold" />
+          </button>
+        </div>
+
+        <form onSubmit={handleResetPassword} className="space-y-4">
+          <div className="relative">
+            <Envelope className="absolute left-3 top-1/2 -translate-y-1/2 text-purple-light/70" size={20} />
+            <input
+              type="email"
+              name="email"
+              placeholder="Digite seu email"
+              required
+              onChange={handleInputChange}
+              className={cn(
+                "w-full bg-background/50 text-white placeholder-purple-light/50 border rounded-xl px-10 py-3 focus:outline-none transition-colors",
+                formErrors.email 
+                  ? "border-red-500/50 focus:border-red-500/70"
+                  : "border-purple-light/10 focus:border-purple-light/30"
+              )}
+            />
+            {formErrors.email && (
+              <span className="text-xs text-red-500 mt-1 ml-2">{formErrors.email}</span>
+            )}
+          </div>
+
+          <div className="space-y-3">
+            {formErrors.submit && (
+              <div className={cn(
+                "flex items-center gap-2 text-sm p-3 rounded-lg border",
+                formErrors.submit.includes('sucesso') || formErrors.submit.includes('enviado')
+                  ? "bg-green-500/10 border-green-500/20 text-green-500"
+                  : "bg-red-500/10 border-red-500/20 text-red-500"
+              )}>
+                <Warning size={20} />
+                <span>{formErrors.submit}</span>
+              </div>
+            )}
+            
+            <motion.button 
+              type="submit"
+              disabled={loading}
+              whileHover={{ scale: loading ? 1 : 1.02 }}
+              whileTap={{ scale: loading ? 1 : 0.98 }}
+              className={cn(
+                "w-full bg-accent-blue text-white py-4 px-6 rounded-xl font-semibold transition-all duration-300 shadow-lg shadow-accent-blue/20 relative overflow-hidden group",
+                loading && "opacity-70 cursor-not-allowed"
+              )}
+            >
+              <span className="relative z-10">
+                {loading ? 'Enviando...' : 'Enviar Email de Recuperação'}
+              </span>
+              <div className="absolute inset-0 bg-gradient-to-r from-accent-blue to-purple opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+            </motion.button>
+          </div>
+        </form>
+      </motion.div>
+    );
+  };
+
   const renderForm = () => {
+    if (showResetForm) {
+      return renderResetPasswordForm();
+    }
+
     const formTitle = formType === 'register' ? 'Criar Conta' : 'Entrar';
     const buttonText = formType === 'register' ? 'Cadastrar' : 'Entrar';
     
@@ -513,6 +635,7 @@ export default function ProfileSelection() {
             <input
               type="email"
               name="email"
+              value={formData.email}
               placeholder="Email"
               required
               onChange={handleInputChange}
@@ -533,8 +656,10 @@ export default function ProfileSelection() {
             <input
               type="password"
               name="password"
+              value={formData.password}
               placeholder="Senha"
               required
+              onChange={handleInputChange}
               className="w-full bg-background/50 text-white placeholder-purple-light/50 border border-purple-light/10 rounded-xl px-10 py-3 focus:outline-none focus:border-purple-light/30 transition-colors"
             />
           </div>
@@ -583,21 +708,6 @@ export default function ProfileSelection() {
               </span>
               <div className="absolute inset-0 bg-gradient-to-r from-accent-blue to-purple opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
             </motion.button>
-
-            {formType === 'login' && (
-              <motion.button 
-                type="button"
-                onClick={handleForgotPassword}
-                disabled={loading}
-                whileHover={{ scale: loading ? 1 : 1.02, x: loading ? 0 : 5 }}
-                className={cn(
-                  "w-full text-sm text-purple-light/70 hover:text-purple-light transition-colors mt-2",
-                  loading && "opacity-70 cursor-not-allowed"
-                )}
-              >
-                Esqueceu sua senha?
-              </motion.button>
-            )}
           </div>
         </form>
       </motion.div>
@@ -769,99 +879,30 @@ export default function ProfileSelection() {
                   })}
                 </div>
               ) : (
-                <motion.div
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.1 }}
-                  className="space-y-4"
-                >
-                  <form onSubmit={handleSubmit} className="space-y-4">
-                    <div className="relative">
-                      <Envelope className="absolute left-3 top-1/2 -translate-y-1/2 text-purple-light/70" size={20} />
-                      <input
-                        type="email"
-                        name="email"
-                        placeholder="Email"
-                        required
-                        className="w-full bg-background/50 text-white placeholder-purple-light/50 border border-purple-light/10 rounded-xl px-10 py-3 focus:outline-none focus:border-purple-light/30 transition-colors"
-                      />
-                    </div>
-
-                    <div className="relative">
-                      <Lock className="absolute left-3 top-1/2 -translate-y-1/2 text-purple-light/70" size={20} />
-                      <input
-                        type="password"
-                        name="password"
-                        placeholder="Senha"
-                        required
-                        className="w-full bg-background/50 text-white placeholder-purple-light/50 border border-purple-light/10 rounded-xl px-10 py-3 focus:outline-none focus:border-purple-light/30 transition-colors"
-                      />
-                    </div>
-
-                    {formType === 'register' && (
-                      <>
-                        <div className="relative">
-                          <Lock className="absolute left-3 top-1/2 -translate-y-1/2 text-purple-light/70" size={20} />
-                          <input
-                            type="password"
-                            name="confirmPassword"
-                            placeholder="Confirmar Senha"
-                            required
-                            className="w-full bg-background/50 text-white placeholder-purple-light/50 border border-purple-light/10 rounded-xl px-10 py-3 focus:outline-none focus:border-purple-light/30 transition-colors"
-                          />
-                        </div>
-                        {renderProfileFields()}
-                      </>
-                    )}
-
-                    <div className="space-y-3">
-                      {formErrors.submit && (
-                        <div className={cn(
-                          "flex items-center gap-2 text-sm p-3 rounded-lg border",
-                          formErrors.submit.includes('sucesso') || formErrors.submit.includes('verifique seu email')
-                            ? "bg-green-500/10 border-green-500/20 text-green-500"
-                            : "bg-red-500/10 border-red-500/20 text-red-500"
-                        )}>
-                          <Warning size={20} />
-                          <span>{formErrors.submit}</span>
-                        </div>
-                      )}
-                      
-                      <motion.button 
-                        type="submit"
-                        disabled={loading}
-                        whileHover={{ scale: loading ? 1 : 1.02 }}
-                        whileTap={{ scale: loading ? 1 : 0.98 }}
-                        className={cn(
-                          "w-full bg-accent-blue text-white py-4 px-6 rounded-xl font-semibold transition-all duration-300 shadow-lg shadow-accent-blue/20 relative overflow-hidden group",
-                          loading && "opacity-70 cursor-not-allowed"
-                        )}
-                      >
-                        <span className="relative z-10">
-                          {loading ? 'Carregando...' : formType === 'register' ? 'Cadastrar' : 'Entrar'}
-                        </span>
-                        <div className="absolute inset-0 bg-gradient-to-r from-accent-blue to-purple opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
-                      </motion.button>
-
-                      {formType === 'login' && (
-                        <motion.button 
-                          type="button"
-                          onClick={handleForgotPassword}
-                          disabled={loading}
-                          whileHover={{ scale: loading ? 1 : 1.02, x: loading ? 0 : 5 }}
-                          className={cn(
-                            "w-full text-sm text-purple-light/70 hover:text-purple-light transition-colors mt-2",
-                            loading && "opacity-70 cursor-not-allowed"
-                          )}
-                        >
-                          Esqueceu sua senha?
-                        </motion.button>
-                      )}
-                    </div>
-                  </form>
-                </motion.div>
+                renderForm()
               )}
             </motion.div>
+
+            {/* Botão Esqueceu sua senha fora do container */}
+            {selectedProfile && formType === 'login' && !showResetForm && (
+              <motion.div
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.2 }}
+                className="mt-6 flex justify-center"
+              >
+                <motion.button 
+                  type="button"
+                  onClick={handleForgotPassword}
+                  disabled={loading}
+                  whileHover={{ scale: loading ? 1 : 1.02 }}
+                  className="flex items-center gap-2 px-6 py-3 text-sm text-purple-light/70 hover:text-purple-light transition-colors rounded-xl hover:bg-purple-light/5 border border-purple-light/10 hover:border-purple-light/30 backdrop-blur-sm"
+                >
+                  <Lock size={16} />
+                  <span>Esqueceu sua senha?</span>
+                </motion.button>
+              </motion.div>
+            )}
           </motion.div>
         </motion.div>
       </div>
